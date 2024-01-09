@@ -10,6 +10,7 @@ package com.chalo.camera2sv
 //    }
 //}
 
+import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
 import android.hardware.camera2.CameraAccessException
@@ -30,6 +31,7 @@ import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
+import android.view.WindowManager
 import android.widget.Button
 import android.widget.Chronometer
 import android.widget.ImageView
@@ -100,6 +102,8 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
+
         surfaceView = findViewById(R.id.surfaceView)
         surfaceHolder = surfaceView.holder
         surfaceHolder.addCallback(surfaceCallback)
@@ -107,7 +111,6 @@ class MainActivity : AppCompatActivity() {
         recordVid=findViewById(R.id.recordVid)
         chronometer=findViewById(R.id.idCMmeter)
 
-        cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
 
 
 
@@ -183,6 +186,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun recordSession(){
         setupMediaRecorder()
+
         val textureSurface = surfaceHolder.surface
         val recordSurface=mediaRecorder.surface
         try {
@@ -262,22 +266,57 @@ class MainActivity : AppCompatActivity() {
     private fun setupMediaRecorder(){
         val rotation=this.windowManager.defaultDisplay.rotation
         //val sensorOrientation=characteristics     //************CALL this after CameraCgharacteristics have been assigned in onCreate
+
+        characteristics = cameraManager.getCameraCharacteristics(cameraId)
         val sensorOrienatation: Int? = characteristics.get<Int>(CameraCharacteristics.SENSOR_ORIENTATION)
         //val so=cameraManager.getCameraCharacteristics(cameraId())
 
+        Log.d("ORIENTATION","sensorOrienatation="+sensorOrienatation)
+        Log.d("ORIENTATION","rotation="+rotation)
+        //mediaRecorder.setOrientationHint(90)
         when(sensorOrienatation){
-            SENSOR_DEFAULT_ORIENTATION_DEGREES->mediaRecorder.setOrientationHint(DEFAULT_ORIENTATION.get(rotation!!))
-            SENSOR_INVERSE_ORIENTATION_DEGREES->mediaRecorder.setOrientationHint(INVERSE_ORIENTATION.get(rotation!!))
+            SENSOR_DEFAULT_ORIENTATION_DEGREES->{
+                mediaRecorder.setOrientationHint(DEFAULT_ORIENTATION.get(rotation!!))
+                Log.d("ORIENTATION","setOrientationHintD="+DEFAULT_ORIENTATION.get(rotation!!))
+            }
+            SENSOR_INVERSE_ORIENTATION_DEGREES->{
+                mediaRecorder.setOrientationHint(INVERSE_ORIENTATION.get(rotation!!))
+                Log.d("ORIENTATION","setOrientationHintI="+INVERSE_ORIENTATION.get(rotation!!))
+            }
         }
+
+//        var orientation = 0
+//        orientation = if (context is Activity) {
+//            (context as Activity).windowManager.defaultDisplay.rotation
+//        } else {
+//            (context.getSystemService(WINDOW_SERVICE) as WindowManager).defaultDisplay.rotation
+//        }
+
+        val display = (this.getSystemService(WINDOW_SERVICE) as WindowManager).defaultDisplay
+        val orientation = display.rotation
+
+        Log.d("ORIENTATION","display.rotation="+orientation)
         val outputPath:String=createVidFile().absolutePath
+        val downloadsDirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        //val downloadsDirectory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val appDirectory = File(downloadsDirectory, "YourAppDirectoryName")
+
+//        if (!appDirectory.exists()) {
+//            val directoryCreated = appDirectory.mkdir()
+//            if (!directoryCreated) {
+//                // Failed to create the directory
+//                Log.d("File_Dir","File directory not created")
+//            }
+//        }
+        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
         mediaRecorder.apply {
-            setVideoSource(MediaRecorder.VideoSource.SURFACE)
-            setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+            setVideoSource(MediaRecorder.VideoSource.SURFACE) //without this illegal state exception, on .camera failed to get a surface
+            setOutputFormat(MediaRecorder.OutputFormat.MPEG_4) //illegal state, can save .3gpp files, change here and below for file name also
             setOutputFile(outputPath)
-            setVideoEncodingBitRate(10000000)
-            setVideoFrameRate(25)
-            setVideoSize(1920,1080)
-            setVideoEncoder(MediaRecorder.VideoEncoder.H264)
+            setVideoEncodingBitRate(10000000) //storage changing,,,,,IllegalArg Exception only when bitrate =0 or less, i.e. should be positive,
+            setVideoFrameRate(25)   //RuntimeException: setVideoFrameRate failed for 2000, more the frameRate, more blurred the video getting
+            setVideoSize(1920,1080) //Changing this results in onConfigureFailed for Record Session
+            setVideoEncoder(MediaRecorder.VideoEncoder.H264) //H264 for encoding high-quality video at lower bit rates
             prepare()
         }
     }
@@ -340,11 +379,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun createVidFileName():String{
         val timeStamp=SimpleDateFormat("yyyyMMdd_HHmmss").format(Date())
-        return "VIDEO_${timeStamp}.mp4"
+        return "VIDEO_${timeStamp}.3gpp"
     }
 
     private fun createVidFile(): File {
-        val mediaStorageDir = File(this.getExternalFilesDir(Environment.DIRECTORY_MOVIES), "YourAppVideosFolder")
+        //val mediaStorageDir = File(this.getExternalFilesDir(Environment.DIRECTORY_DCIM), "YourAppVideosFolder2")
+        val mediaStorageDir=File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),"YourAppDirectoryName")
         if (!mediaStorageDir.exists() && !mediaStorageDir.mkdirs()) {
             return File("") // Return an empty file if directory creation fails
         }
