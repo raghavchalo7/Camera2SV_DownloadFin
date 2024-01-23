@@ -18,12 +18,15 @@ import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
+import android.hardware.camera2.CaptureRequest
 import android.icu.text.SimpleDateFormat
 import android.media.MediaRecorder
+import android.opengl.Visibility
 import android.os.Bundle
 import android.os.Environment
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import android.util.SparseIntArray
@@ -39,6 +42,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import java.io.File
 import java.util.Date
+import java.util.Locale
 
 
 class MainActivity : AppCompatActivity() {
@@ -49,9 +53,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var surfaceView: SurfaceView
     private lateinit var surfaceHolder: SurfaceHolder
     private lateinit var changeCameraButton: Button
+    private lateinit var hideButton: Button
+    private lateinit var mrButton: Button
     private lateinit var recordVid: ImageView
     private lateinit var chronometer: Chronometer
     private var isRecording=false
+    private var isPrev=true
+    private var ct=0
     private lateinit var currentVidFilePath:String
     private lateinit var characteristics: CameraCharacteristics
     //private var outputFilePath: String = createVidFile().absolutePath
@@ -65,17 +73,21 @@ class MainActivity : AppCompatActivity() {
     private var backgroundThread: HandlerThread? = null
 
     private val stateCallback = object : CameraDevice.StateCallback() {
-        override fun onOpened(camera: CameraDevice) {
+        override fun onOpened(camera: CameraDevice) {1
             cameraDevice = camera
+            Log.d("PreviewSessionCC","PreviewSession called")
+            Log.d("cameradevice==","cd="+cameraDevice)
             createCameraPreviewSession()
         }
 
         override fun onDisconnected(camera: CameraDevice) {
+            Log.d("Camera_Close_Check","onDisconnected")
             cameraDevice?.close()
             cameraDevice = null
         }
 
         override fun onError(camera: CameraDevice, error: Int) {
+            Log.d("Camera_Close_Check","onError")
             cameraDevice?.close()
             cameraDevice = null
             finish()
@@ -85,16 +97,19 @@ class MainActivity : AppCompatActivity() {
     private val surfaceCallback = object : SurfaceHolder.Callback {
         override fun surfaceCreated(holder: SurfaceHolder) {
             // Surface is created, open camera and start preview
+            Log.d("Surface_Check","Surface Created")
             openCamera()
         }
 
         override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+            Log.d("Surface_Check","Surface Changed")
             // Surface changed, handle accordingly (e.g., update camera parameters)
         }
 
         override fun surfaceDestroyed(holder: SurfaceHolder) {
+            Log.d("Surface_Check","Surface Destroyed")
             // Surface is destroyed, release camera resources
-            closeCamera()
+            //closeCamera()
         }
     }
 
@@ -107,9 +122,12 @@ class MainActivity : AppCompatActivity() {
         surfaceView = findViewById(R.id.surfaceView)
         surfaceHolder = surfaceView.holder
         surfaceHolder.addCallback(surfaceCallback)
-        changeCameraButton=findViewById(R.id.changeCameraButton)
+        //changeCameraButton=findViewById(R.id.changeCameraButton)
         recordVid=findViewById(R.id.recordVid)
+        hideButton=findViewById(R.id.hideButton)
         chronometer=findViewById(R.id.idCMmeter)
+        mrButton=findViewById(R.id.MRbutton)
+
 
 
 
@@ -140,17 +158,17 @@ class MainActivity : AppCompatActivity() {
             e.printStackTrace()
         }
 
-        changeCameraButton.setOnClickListener(View.OnClickListener {
-            closeCamera()
-            if(cameraId==cameraManager.cameraIdList[1])
-            {
-                cameraId=cameraManager.cameraIdList[2]
-            }
-            else{
-                cameraId=cameraManager.cameraIdList[1]
-            }
-            openCamera()
-        })
+//        changeCameraButton.setOnClickListener(View.OnClickListener {
+//            closeCamera()
+//            if(cameraId==cameraManager.cameraIdList[1])
+//            {
+//                cameraId=cameraManager.cameraIdList[2]
+//            }
+//            else{
+//                cameraId=cameraManager.cameraIdList[1]
+//            }
+//            openCamera()
+//        })
 
         recordVid.setOnClickListener {
             Toast.makeText(this, "Button Pressed", Toast.LENGTH_SHORT).show()
@@ -162,9 +180,47 @@ class MainActivity : AppCompatActivity() {
             }
             else{
                 isRecording=true
+                ct=0
+                startChronometer()
                 startRecordSession()
             }
         }
+
+//        hideButton.setOnClickListener {
+//            val chk=isRecording
+//            if(isPrev) {
+//                surfaceView.visibility = View.INVISIBLE
+//                isPrev = false
+//            }
+//            else
+//            {
+//                surfaceView.visibility = View.VISIBLE
+//                isPrev = true
+//            }
+//            if(chk)
+//            {
+//                Handler().postDelayed({
+//                    //doSomethingHere()
+//                    startRecordSession()
+//                }, 200)
+//
+//            }
+//        }
+
+        mrButton.setOnClickListener {
+            stopMediaRecorder()
+            //surfaceHolder.addCallback(surfaceCallback)
+            surfaceView.visibility = View.VISIBLE
+            isPrev = true
+            Handler().postDelayed({
+                //doSomethingHere()
+                createCameraPreviewSession()
+            }, 200)
+
+
+        }
+
+
 
         val hardwareLevel = CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL
         Log.d("HardwareLevel","hardwareLevel="+hardwareLevel)
@@ -185,44 +241,163 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun recordSession(){
-        setupMediaRecorder()
+        if(ct<1) {
+            Log.d("IFELSE","If")
+            setupMediaRecorder()
+        }
+        else
+        {
+            Log.d("IFELSE","Else")
+            mediaRecorder.resume()
+        }
+        ct++
 
-        val textureSurface = surfaceHolder.surface
         val recordSurface=mediaRecorder.surface
+        Log.d("CTCHECK","CTCHECK="+ct)
+        val textureSurface = surfaceHolder.surface
+        val surfaces = ArrayList<Surface>().apply {
+            add(textureSurface)
+            add(recordSurface)
+        }
         try {
-            val captureRequestBuilder =
-                cameraDevice?.createCaptureRequest(CameraDevice.TEMPLATE_RECORD)
-                    ?: throw IllegalStateException("CameraDevice is null")
-            captureRequestBuilder.addTarget(textureSurface)
-            captureRequestBuilder.addTarget(recordSurface)
-            val surfaces= ArrayList<Surface>().apply{
-                add(textureSurface)
-                add(recordSurface)
-            }
-            //apply {
+            if(isPrev) {
+
+
+                //apply {
 //                surfaces.add(textureSurface)
 //                surfaces.add(recordSurface)
-            //}
+                //}
 
-            cameraDevice?.createCaptureSession(
-                surfaces,
-                object : CameraCaptureSession.StateCallback() {
-                    override fun onConfigured(session: CameraCaptureSession) {
-                        if (cameraDevice == null) return
+                cameraDevice?.createCaptureSession(
+                    surfaces,
+                    object : CameraCaptureSession.StateCallback() {
+                        override fun onConfigured(session: CameraCaptureSession) {
+                            if (cameraDevice == null) return
+                            Log.d("Session Count Check", "Called 1")
+                            session.setRepeatingRequest(
+                                builder(
+                                    textureSurface,
+                                    recordSurface
+                                ).build(), null, backgroundHandler
+                            )
+                            Log.d("Session Count Check", "Called 2")
+                            val hideButton=findViewById<Button>(R.id.hideButton)
+                            hideButton.setOnClickListener {
 
-                        val captureRequest = captureRequestBuilder.build()
-                        session.setRepeatingRequest(captureRequest, null, backgroundHandler)
-                        isRecording=true
-                        mediaRecorder.start()
+                                val chk=isRecording
+                                if(isPrev) {
+                                    surfaceView.visibility = View.INVISIBLE
+                                    isPrev = false
 
-                    }
+                                    session.stopRepeating()
 
-                    override fun onConfigureFailed(session: CameraCaptureSession) {
-                        Toast.makeText(this@MainActivity, "Creating Record Session Failed", Toast.LENGTH_SHORT).show()
-                    }
-                },
-                backgroundHandler
-            )
+                                    val recordingRequest =
+                                        session.device.createCaptureRequest(CameraDevice.TEMPLATE_RECORD)
+                                    recordingRequest.removeTarget(textureSurface)  // Remove SurfaceView surface
+                                    recordingRequest.addTarget(recordSurface)
+                                    Log.d("Session Check", "Here")
+                                    session.setRepeatingRequest(
+                                        builder(
+                                            textureSurface,
+                                            recordSurface
+                                        ).build(), null, backgroundHandler
+                                    )
+                                }
+                                else
+                                {
+                                    surfaceView.visibility = View.VISIBLE
+                                    isPrev = true
+
+                                    session.stopRepeating()
+
+                                    val recordingRequest =
+                                        session.device.createCaptureRequest(CameraDevice.TEMPLATE_RECORD)
+                                    recordingRequest.addTarget(textureSurface)  // Remove SurfaceView surface
+                                    recordingRequest.addTarget(recordSurface)
+                                    Log.d("Session Check", "Here")
+                                    session.setRepeatingRequest(
+                                        builder(
+                                            textureSurface,
+                                            recordSurface
+                                        ).build(), null, backgroundHandler
+                                    )
+                                }
+//                                if(chk)
+//                                {
+//                                    Handler().postDelayed({
+//                                        //doSomethingHere()
+//                                        startRecordSession()
+//                                    }, 200)
+//
+//                                }
+
+                                Log.d("Session Count Check", "Called 3")
+
+                            }
+                            isRecording = true
+                            if (ct < 2) {
+                                mediaRecorder.start()
+                            }
+
+                        }
+
+                        override fun onConfigureFailed(session: CameraCaptureSession) {
+                            Toast.makeText(
+                                this@MainActivity,
+                                "Creating Record Session Failed",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    },
+                    backgroundHandler
+                )
+            }
+            else
+            {
+                val captureRequestBuilder =
+                    cameraDevice?.createCaptureRequest(CameraDevice.TEMPLATE_RECORD)
+                        ?: throw IllegalStateException("CameraDevice is null")
+                //captureRequestBuilder.addTarget(textureSurface)
+                captureRequestBuilder.addTarget(recordSurface)
+//                val surfaces = ArrayList<Surface>().apply {
+//                    //add(textureSurface)
+//                    add(recordSurface)
+//                }
+                //apply {
+//                surfaces.add(textureSurface)
+//                surfaces.add(recordSurface)
+                //}
+
+                cameraDevice?.createCaptureSession(
+                    surfaces,
+                    object : CameraCaptureSession.StateCallback() {
+                        override fun onConfigured(session: CameraCaptureSession) {
+                            if (cameraDevice == null) return
+
+                            val captureRequest = captureRequestBuilder.build()
+                            Log.d("CheckRepeat", "Before Record request")
+                            session.setRepeatingRequest(builder(textureSurface, recordSurface).build(), null, backgroundHandler)
+                            Log.d("CheckRepeat", "After Record request")
+                            isRecording = true
+                            //Log.d("CtCheck=", "CtCheck=" + ct)
+                            if (ct < 2) {
+                                mediaRecorder.start()
+                            }
+
+                        }
+
+                        override fun onConfigureFailed(session: CameraCaptureSession) {
+                            Toast.makeText(
+                                this@MainActivity,
+                                "Creating Record Session Failed",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    },
+                    Handler(Looper.getMainLooper())
+                )
+
+            }
 
         }
         catch (e: CameraAccessException) {
@@ -230,8 +405,23 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun builder(
+        textureSurface: Surface,
+        recordSurface: Surface
+    ): CaptureRequest.Builder {
+        val captureRequestBuilder =
+            cameraDevice?.createCaptureRequest(CameraDevice.TEMPLATE_RECORD)
+                ?: throw IllegalStateException("CameraDevice is null")
+        if(isPrev) {
+            captureRequestBuilder.addTarget(textureSurface)
+        }
+        captureRequestBuilder.addTarget(recordSurface)
+        return captureRequestBuilder
+    }
+
     private fun createCameraPreviewSession() {
         // Set up camera preview here using the Surface
+        Log.d("PreviewSession","PreviewSession called")
         val surface = surfaceHolder.surface
 
         try {
@@ -280,7 +470,7 @@ class MainActivity : AppCompatActivity() {
                 Log.d("ORIENTATION","setOrientationHintD="+DEFAULT_ORIENTATION.get(rotation!!))
             }
             SENSOR_INVERSE_ORIENTATION_DEGREES->{
-                mediaRecorder.setOrientationHint(INVERSE_ORIENTATION.get(rotation!!))
+                mediaRecorder.setOrientationHint(0)
                 Log.d("ORIENTATION","setOrientationHintI="+INVERSE_ORIENTATION.get(rotation!!))
             }
         }
@@ -313,7 +503,7 @@ class MainActivity : AppCompatActivity() {
             setVideoSource(MediaRecorder.VideoSource.SURFACE) //without this illegal state exception, on .camera failed to get a surface
             setOutputFormat(MediaRecorder.OutputFormat.MPEG_4) //illegal state, can save .3gpp files, change here and below for file name also
             setOutputFile(outputPath)
-            setVideoEncodingBitRate(10000000) //storage changing,,,,,IllegalArg Exception only when bitrate =0 or less, i.e. should be positive,
+            setVideoEncodingBitRate(1) //storage changing,,,,,IllegalArg Exception only when bitrate =0 or less, i.e. should be positive,
             setVideoFrameRate(25)   //RuntimeException: setVideoFrameRate failed for 2000, more the frameRate, more blurred the video getting
             setVideoSize(1920,1080) //Changing this results in onConfigureFailed for Record Session
             setVideoEncoder(MediaRecorder.VideoEncoder.H264) //H264 for encoding high-quality video at lower bit rates
@@ -335,6 +525,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun closeCamera() {
+        Log.d("Camera_Close_Check","closeCamera()")
         cameraDevice?.close()
         cameraDevice = null
     }
@@ -356,14 +547,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startRecordSession(){
-        startChronometer()
         recordSession()
     }
 
     private fun stopRecordSession(){
         stopChronometer()
-        stopMediaRecorder()
-        createCameraPreviewSession()
+        mediaRecorder.pause()
+        //stopMediaRecorder()
+        //createCameraPreviewSession()
     }
 
     private fun startChronometer(){
@@ -382,6 +573,15 @@ class MainActivity : AppCompatActivity() {
         return "VIDEO_${timeStamp}.3gpp"
     }
 
+//    private fun createVidFile(): File {
+//        val timeStamp: String =
+//            SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+//        val storageDir: File = getExternalFilesDir(null)!!
+//        return File.createTempFile("VIDEO_${timeStamp}_", ".mp4", storageDir)
+//    }
+
+
+
     private fun createVidFile(): File {
         //val mediaStorageDir = File(this.getExternalFilesDir(Environment.DIRECTORY_DCIM), "YourAppVideosFolder2")
         val mediaStorageDir=File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),"YourAppDirectoryName")
@@ -396,6 +596,21 @@ class MainActivity : AppCompatActivity() {
 //        currentVidFilePath=vidfile.absolutePath
 //        return vidfile
     }
+
+//    private fun createVidFile(): File {
+//        //val mediaStorageDir = File(this.getExternalFilesDir(Environment.DIRECTORY_DCIM), "YourAppVideosFolder2")
+//        val mediaStorageDir=File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),"YourAppDirectoryName")
+//        if (!mediaStorageDir.exists() && !mediaStorageDir.mkdirs()) {
+//            return File("") // Return an empty file if directory creation fails
+//        }
+//        return File(
+//            mediaStorageDir.path + File.separator +
+//                    "VID_" + System.currentTimeMillis() + ".mp4"
+//        )
+////        val vidfile=File(filesDir,createVidFileName())
+////        currentVidFilePath=vidfile.absolutePath
+////        return vidfile
+//    }
 
     override fun onResume() {
         super.onResume()
@@ -425,4 +640,6 @@ class MainActivity : AppCompatActivity() {
             append(Surface.ROTATION_270,0)
         }
     }
+
+
 }
